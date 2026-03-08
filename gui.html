@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quizlet Flashcard Exporter</title>
+  <style>
+    :root {
+      --bg: #f6f8ff;
+      --panel: #ffffff;
+      --ink: #1b2440;
+      --muted: #5d6783;
+      --accent: #0f6d5f;
+      --accent-2: #0a5449;
+      --danger: #b42318;
+      --line: #d9deea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(1200px 450px at 10% -20%, #d8efe7 0%, transparent 70%), var(--bg);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+    .card {
+      width: min(760px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: 0 6px 25px rgba(27, 36, 64, 0.08);
+    }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; }
+    p { margin: 0 0 16px; color: var(--muted); }
+    label { display: block; font-weight: 600; margin: 14px 0 6px; }
+    input, textarea, select, button {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 11px 12px;
+      font-size: 15px;
+      color: var(--ink);
+      background: #fff;
+    }
+    textarea { min-height: 80px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 140px;
+      gap: 12px;
+      align-items: end;
+    }
+    button {
+      margin-top: 16px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-2); }
+    .meta { margin-top: 12px; font-size: 14px; color: var(--muted); }
+    .error { margin-top: 12px; color: var(--danger); font-weight: 600; }
+    @media (max-width: 640px) {
+      .row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Quizlet Flashcard Exporter</h1>
+    <p>Paste a Quizlet set URL, choose output format, and download terms/definitions.</p>
+
+    <label for="url">Quizlet URL</label>
+    <input id="url" placeholder="https://quizlet.com/1144381407/flashcards" required>
+
+    <div class="row">
+      <div>
+        <label for="format">Format</label>
+        <select id="format">
+          <option value="json">JSON</option>
+          <option value="csv">CSV</option>
+          <option value="tsv">TSV</option>
+        </select>
+      </div>
+      <div>
+        <button id="exportBtn">Export</button>
+      </div>
+    </div>
+
+    <label for="cookie">Cookie Header (optional)</label>
+    <textarea id="cookie" placeholder="qltj=...; qlts=...; qtkn=..."></textarea>
+    <p class="meta">Use this only when Quizlet returns 403/CAPTCHA. Keep it private.</p>
+
+    <div id="status" class="meta"></div>
+    <div id="error" class="error"></div>
+  </main>
+
+  <script>
+    const urlEl = document.getElementById("url");
+    const formatEl = document.getElementById("format");
+    const cookieEl = document.getElementById("cookie");
+    const btn = document.getElementById("exportBtn");
+    const statusEl = document.getElementById("status");
+    const errorEl = document.getElementById("error");
+
+    function setBusy(isBusy) {
+      btn.disabled = isBusy;
+      btn.textContent = isBusy ? "Exporting..." : "Export";
+    }
+
+    async function runExport() {
+      const url = urlEl.value.trim();
+      const format = formatEl.value;
+      const cookie = cookieEl.value.trim();
+
+      errorEl.textContent = "";
+      statusEl.textContent = "";
+
+      if (!url) {
+        errorEl.textContent = "Please enter a Quizlet URL.";
+        return;
+      }
+
+      setBusy(true);
+      try {
+        const res = await fetch("/api/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, format, cookie })
+        });
+
+        if (!res.ok) {
+          let message = `Request failed: ${res.status}`;
+          try {
+            const err = await res.json();
+            if (err.error) message = err.error;
+          } catch {}
+          throw new Error(message);
+        }
+
+        const blob = await res.blob();
+        const count = res.headers.get("X-Card-Count") || "?";
+        const fileName = res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || `cards.${format}`;
+
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+
+        statusEl.textContent = `Done. Exported ${count} cards to ${fileName}.`;
+      } catch (err) {
+        errorEl.textContent = err.message || String(err);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    btn.addEventListener("click", runExport);
+  </script>
+</body>
+</html>

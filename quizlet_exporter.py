@@ -21,8 +21,11 @@ USER_AGENT = (
 )
 
 
-def fetch_html(url: str) -> str:
-    req = Request(url, headers={"User-Agent": USER_AGENT})
+def fetch_html(url: str, cookie: str | None = None) -> str:
+    headers = {"User-Agent": USER_AGENT}
+    if cookie:
+        headers["Cookie"] = cookie
+    req = Request(url, headers=headers)
     with urlopen(req, timeout=30) as response:
         return response.read().decode("utf-8", errors="replace")
 
@@ -51,6 +54,17 @@ def normalize_text(value: Any) -> str:
         joined = " ".join(part for part in (normalize_text(v) for v in value) if part)
         return re.sub(r"\s+", " ", joined).strip()
     if isinstance(value, dict):
+        # Quizlet card side media often stores the visible text here.
+        media = value.get("media")
+        if isinstance(media, list):
+            media_parts = []
+            for item in media:
+                if isinstance(item, dict):
+                    plain = item.get("plainText")
+                    if isinstance(plain, str) and plain.strip():
+                        media_parts.append(plain.strip())
+            if media_parts:
+                return re.sub(r"\s+", " ", " ".join(media_parts)).strip()
         for key in ("plainText", "text", "label", "word", "term", "definition", "value"):
             if key in value:
                 text = normalize_text(value[key])
@@ -105,15 +119,70 @@ def iter_dicts(node: Any):
             yield from iter_dicts(item)
 
 
+def extract_cards_from_studiable_items(node: Any, set_id: int | None) -> list[tuple[str, str]]:
+    cards: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for obj in iter_dicts(node):
+        items = obj.get("studiableItems") if isinstance(obj, dict) else None
+        if not isinstance(items, list):
+            continue
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if set_id is not None and item.get("studiableContainerId") != set_id:
+                continue
+
+            sides = item.get("cardSides")
+            if not isinstance(sides, list) or len(sides) < 2:
+                continue
+            term = normalize_text(sides[0])
+            definition = normalize_text(sides[1])
+            if term and definition:
+                card = (term, definition)
+                if card not in seen:
+                    seen.add(card)
+                    cards.append(card)
+
+    return cards
+
+
 def extract_flashcards(next_data: dict[str, Any]) -> list[tuple[str, str]]:
     cards: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
 
-    for obj in iter_dicts(next_data):
-        maybe = looks_like_card(obj)
-        if maybe and maybe not in seen:
-            seen.add(maybe)
-            cards.append(maybe)
+    set_id: int | None = None
+    query = next_data.get("query", {})
+    if isinstance(query, dict):
+        value = query.get("setId")
+        if isinstance(value, str) and value.isdigit():
+            set_id = int(value)
+        elif isinstance(value, int):
+            set_id = value
+
+    roots: list[Any] = [next_data]
+    redux_blob = (
+        next_data.get("props", {})
+        .get("pageProps", {})
+        .get("dehydratedReduxStateKey")
+    )
+    if isinstance(redux_blob, str):
+        try:
+            redux_state = json.loads(redux_blob)
+            roots.append(redux_state)
+            targeted = extract_cards_from_studiable_items(redux_state, set_id)
+            if targeted:
+                return targeted
+        except json.JSONDecodeError:
+            pass
+
+    for root in roots:
+        for obj in iter_dicts(root):
+            maybe = looks_like_card(obj)
+            if maybe and maybe not in seen:
+                seen.add(maybe)
+                cards.append(maybe)
 
     if not cards:
         raise ValueError(
@@ -156,10 +225,14 @@ def main(argv: list[str] | None = None) -> int:
         default="csv",
         help="Output format (default: csv)",
     )
+    parser.add_argument(
+        "--cookie",
+        help="Optional Cookie header value for authenticated access",
+    )
     args = parser.parse_args(argv)
 
     try:
-        html = fetch_html(args.url)
+        html = fetch_html(args.url, cookie=args.cookie)
         next_data = extract_next_data_json(html)
         cards = extract_flashcards(next_data)
         write_cards(cards, args.format, args.output)
