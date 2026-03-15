@@ -9,6 +9,7 @@ import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 
 import quizlet_exporter as exporter
@@ -99,6 +100,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        except HTTPError as exc:
+            hint = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace").lower()
+                if "captcha" in body or "verify" in body:
+                    hint = " Quizlet likely blocked the request (captcha/verification). Try fresh cookies."
+            except Exception:  # noqa: BLE001
+                pass
+            self._send_json(
+                HTTPStatus.BAD_GATEWAY,
+                {"error": f"Quizlet returned HTTP {exc.code} {exc.reason}.{hint}"},
+            )
+        except URLError as exc:
+            self._send_json(HTTPStatus.BAD_GATEWAY, {"error": f"Network error: {exc}"})
         except Exception as exc:  # noqa: BLE001
             self._send_json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
 

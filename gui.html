@@ -53,6 +53,9 @@
       gap: 12px;
       align-items: end;
     }
+    .row.cookies {
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
     button {
       margin-top: 16px;
       background: var(--accent);
@@ -91,8 +94,30 @@
       </div>
     </div>
 
-    <label for="cookie">Cookie Header (optional)</label>
-    <textarea id="cookie" placeholder="qltj=...; qlts=...; qtkn=..."></textarea>
+    <label for="cookieRaw">Full Cookie Header (optional)</label>
+    <input id="cookieRaw" placeholder="qltj=...; qlts=...; qtkn=...">
+
+    <label>Cookie Values (optional)</label>
+    <div class="row cookies">
+      <div>
+        <label for="cookieQltj">qltj value</label>
+        <input id="cookieQltj" placeholder="paste qltj value">
+      </div>
+      <div>
+        <label for="cookieQlts">qlts value</label>
+        <input id="cookieQlts" placeholder="paste qlts value">
+      </div>
+    </div>
+    <div class="row cookies">
+      <div>
+        <label for="cookieQtkn">qtkn value</label>
+        <input id="cookieQtkn" placeholder="paste qtkn value">
+      </div>
+      <div>
+        <label for="cookieExtra">Other cookies (optional)</label>
+        <input id="cookieExtra" placeholder="key=value; key2=value2">
+      </div>
+    </div>
     <p class="meta">Use this only when Quizlet returns 403/CAPTCHA. Keep it private.</p>
 
     <div id="status" class="meta"></div>
@@ -102,7 +127,11 @@
   <script>
     const urlEl = document.getElementById("url");
     const formatEl = document.getElementById("format");
-    const cookieEl = document.getElementById("cookie");
+    const rawEl = document.getElementById("cookieRaw");
+    const qltjEl = document.getElementById("cookieQltj");
+    const qltsEl = document.getElementById("cookieQlts");
+    const qtknEl = document.getElementById("cookieQtkn");
+    const extraEl = document.getElementById("cookieExtra");
     const btn = document.getElementById("exportBtn");
     const statusEl = document.getElementById("status");
     const errorEl = document.getElementById("error");
@@ -115,7 +144,7 @@
     async function runExport() {
       const url = urlEl.value.trim();
       const format = formatEl.value;
-      const cookie = cookieEl.value.trim();
+      const cookie = buildCookieHeader();
 
       errorEl.textContent = "";
       statusEl.textContent = "";
@@ -163,6 +192,24 @@
     }
 
     btn.addEventListener("click", runExport);
+
+    function buildCookieHeader() {
+      const raw = rawEl.value.trim();
+      if (raw) return raw;
+
+      const parts = [];
+      const qltj = qltjEl.value.trim();
+      const qlts = qltsEl.value.trim();
+      const qtkn = qtknEl.value.trim();
+      const extra = extraEl.value.trim();
+
+      if (qltj) parts.push(`qltj=${qltj}`);
+      if (qlts) parts.push(`qlts=${qlts}`);
+      if (qtkn) parts.push(`qtkn=${qtkn}`);
+      if (extra) parts.push(extra);
+
+      return parts.join("; ");
+    }
   </script>
 </body>
 </html>
